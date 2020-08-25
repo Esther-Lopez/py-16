@@ -53,7 +53,6 @@ log = logging.getLogger(__name__)
 
 class Client(Methods, BaseClient):
     """Pyrogram Client, the main means for interacting with Telegram.
-
     Parameters:
         session_name (``str``):
             Pass a string of your choice to give a name to the client session, e.g.: "*my_account*". This name will be
@@ -63,97 +62,82 @@ class Client(Methods, BaseClient):
             using a memory storage without having to login again, you can use
             :meth:`~pyrogram.Client.export_session_string` before stopping the client to get a session string you can
             pass here as argument.
-
         api_id (``int`` | ``str``, *optional*):
             The *api_id* part of your Telegram API Key, as integer. E.g.: "12345".
             This is an alternative way to pass it if you don't want to use the *config.ini* file.
-
         api_hash (``str``, *optional*):
             The *api_hash* part of your Telegram API Key, as string. E.g.: "0123456789abcdef0123456789abcdef".
             This is an alternative way to set it if you don't want to use the *config.ini* file.
-
         app_version (``str``, *optional*):
             Application version. Defaults to "Pyrogram |version|".
             This is an alternative way to set it if you don't want to use the *config.ini* file.
-
         device_model (``str``, *optional*):
             Device model. Defaults to *platform.python_implementation() + " " + platform.python_version()*.
             This is an alternative way to set it if you don't want to use the *config.ini* file.
-
         system_version (``str``, *optional*):
             Operating System version. Defaults to *platform.system() + " " + platform.release()*.
             This is an alternative way to set it if you don't want to use the *config.ini* file.
-
         lang_code (``str``, *optional*):
             Code of the language used on the client, in ISO 639-1 standard. Defaults to "en".
             This is an alternative way to set it if you don't want to use the *config.ini* file.
-
         ipv6 (``bool``, *optional*):
             Pass True to connect to Telegram using IPv6.
             Defaults to False (IPv4).
-
         proxy (``dict``, *optional*):
             Your SOCKS5 Proxy settings as dict,
             e.g.: *dict(hostname="11.22.33.44", port=1080, username="user", password="pass")*.
             The *username* and *password* can be omitted if your proxy doesn't require authorization.
             This is an alternative way to setup a proxy if you don't want to use the *config.ini* file.
-
         test_mode (``bool``, *optional*):
             Enable or disable login to the test servers.
             Only applicable for new sessions and will be ignored in case previously created sessions are loaded.
             Defaults to False.
-
         bot_token (``str``, *optional*):
             Pass your Bot API token to create a bot session, e.g.: "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
             Only applicable for new sessions.
             This is an alternative way to set it if you don't want to use the *config.ini* file.
-
         phone_number (``str``, *optional*):
             Pass your phone number as string (with your Country Code prefix included) to avoid entering it manually.
             Only applicable for new sessions.
-
         phone_code (``str``, *optional*):
             Pass the phone code as string (for test numbers only) to avoid entering it manually.
             Only applicable for new sessions.
-
         password (``str``, *optional*):
             Pass your Two-Step Verification password as string (if you have one) to avoid entering it manually.
             Only applicable for new sessions.
-
         force_sms (``bool``, *optional*):
             Pass True to force Telegram sending the authorization code via SMS.
             Only applicable for new sessions.
             Defaults to False.
-
         workers (``int``, *optional*):
             Number of maximum concurrent workers for handling incoming updates.
             Defaults to 4.
-
         workdir (``str``, *optional*):
             Define a custom working directory. The working directory is the location in your filesystem where Pyrogram
             will store your session files.
             Defaults to the parent directory of the main script.
-
         config_file (``str``, *optional*):
             Path of the configuration file.
             Defaults to ./config.ini
-
         plugins (``dict``, *optional*):
             Your Smart Plugins settings as dict, e.g.: *dict(root="plugins")*.
-            This is an alternative way setup plugins if you don't want to use the *config.ini* file.
-
+            This is an alternative way to setup plugins if you don't want to use the *config.ini* file.
         no_updates (``bool``, *optional*):
             Pass True to completely disable incoming updates for the current session.
             When updates are disabled your client can't receive any new message.
             Useful for batch programs that don't need to deal with updates.
             Defaults to False (updates enabled and always received).
-
         takeout (``bool``, *optional*):
             Pass True to let the client use a takeout session instead of a normal one, implies *no_updates=True*.
             Useful for exporting your Telegram data. Methods invoked inside a takeout session (such as get_history,
             download_media, ...) are less prone to throw FloodWait exceptions.
             Only available for users, bots will ignore this parameter.
             Defaults to False (normal session).
+        sleep_threshold (``int``, *optional*):
+            Set a sleep threshold for flood wait exceptions happening globally in this client instance, below which any
+            request that raises a flood wait will be automatically invoked again after sleeping for the required amount
+            of time. Flood wait exceptions requiring higher waiting times will be raised.
+            Defaults to 60 (seconds).
     """
 
     def __init__(
@@ -178,7 +162,8 @@ class Client(Methods, BaseClient):
         config_file: str = BaseClient.CONFIG_FILE,
         plugins: dict = None,
         no_updates: bool = None,
-        takeout: bool = None
+        takeout: bool = None,
+        sleep_threshold: int = Session.SLEEP_THRESHOLD
     ):
         super().__init__()
 
@@ -204,6 +189,7 @@ class Client(Methods, BaseClient):
         self.plugins = plugins
         self.no_updates = no_updates
         self.takeout = takeout
+        self.sleep_threshold = sleep_threshold
 
         if isinstance(session_name, str):
             if session_name == ":memory:" or len(session_name) >= MemoryStorage.SESSION_STRING_SIZE:
@@ -216,7 +202,7 @@ class Client(Methods, BaseClient):
         else:
             raise ValueError("Unknown storage engine")
 
-        self.dispatcher = Dispatcher(self, workers)
+        self.dispatcher = Dispatcher(self, 0 if no_updates else workers)
 
     def __enter__(self):
         return self.start()
@@ -252,11 +238,9 @@ class Client(Methods, BaseClient):
     async def connect(self) -> bool:
         """
         Connect the client to Telegram servers.
-
         Returns:
             ``bool``: On success, in case the passed-in session is authorized, True is returned. Otherwise, in case
             the session needs to be authorized, False is returned.
-
         Raises:
             ConnectionError: In case you try to connect an already connected client.
         """
@@ -276,7 +260,6 @@ class Client(Methods, BaseClient):
 
     async def disconnect(self):
         """Disconnect the client from Telegram servers.
-
         Raises:
             ConnectionError: In case you try to disconnect an already disconnected client or in case you try to
                 disconnect a client that needs to be terminated first.
@@ -293,10 +276,8 @@ class Client(Methods, BaseClient):
 
     async def initialize(self):
         """Initialize the client by starting up workers.
-
         This method will start updates and download workers.
         It will also load plugins and start the internal dispatcher.
-
         Raises:
             ConnectionError: In case you try to initialize a disconnected client or in case you try to initialize an
                 already initialized client.
@@ -309,9 +290,10 @@ class Client(Methods, BaseClient):
 
         self.load_plugins()
 
-        for _ in range(Client.UPDATES_WORKERS):
-            self.updates_worker_tasks.append(
-                asyncio.ensure_future(self.updates_worker())
+        if not self.no_updates:
+            for _ in range(Client.UPDATES_WORKERS):
+                self.updates_worker_tasks.append(
+                    asyncio.ensure_future(self.updates_worker())
             )
 
         logging.info("Started {} UpdatesWorkerTasks".format(Client.UPDATES_WORKERS))
@@ -330,10 +312,8 @@ class Client(Methods, BaseClient):
 
     async def terminate(self):
         """Terminate the client by shutting down workers.
-
         This method does the opposite of :meth:`~Client.initialize`.
         It will stop the dispatcher and shut down updates and download workers.
-
         Raises:
             ConnectionError: In case you try to terminate a client that is already terminated.
         """
@@ -357,13 +337,14 @@ class Client(Methods, BaseClient):
 
         logging.info("Stopped {} DownloadWorkerTasks".format(Client.DOWNLOAD_WORKERS))
 
-        for _ in range(Client.UPDATES_WORKERS):
-            self.updates_queue.put_nowait(None)
+        if not self.no_updates:
+            for _ in range(Client.UPDATES_WORKERS):
+                self.updates_queue.put_nowait(None)
 
-        for task in self.updates_worker_tasks:
-            await task
+            for task in self.updates_worker_tasks:
+                await task
 
-        self.updates_worker_tasks.clear()
+            self.updates_worker_tasks.clear()
 
         logging.info("Stopped {} UpdatesWorkerTasks".format(Client.UPDATES_WORKERS))
 
@@ -376,14 +357,11 @@ class Client(Methods, BaseClient):
 
     async def send_code(self, phone_number: str) -> SentCode:
         """Send the confirmation code to the given phone number.
-
         Parameters:
             phone_number (``str``):
                 Phone number in international format (includes the country prefix).
-
         Returns:
             :obj:`SentCode`: On success, an object containing information on the sent confirmation code is returned.
-
         Raises:
             BadRequest: In case the phone number is invalid.
         """
@@ -412,20 +390,15 @@ class Client(Methods, BaseClient):
 
     async def resend_code(self, phone_number: str, phone_code_hash: str) -> SentCode:
         """Re-send the confirmation code using a different type.
-
         The type of the code to be re-sent is specified in the *next_type* attribute of the :obj:`SentCode` object
         returned by :meth:`send_code`.
-
         Parameters:
             phone_number (``str``):
                 Phone number in international format (includes the country prefix).
-
             phone_code_hash (``str``):
                 Confirmation code identifier.
-
         Returns:
             :obj:`SentCode`: On success, an object containing information on the re-sent confirmation code is returned.
-
         Raises:
             BadRequest: In case the arguments are invalid.
         """
@@ -443,23 +416,18 @@ class Client(Methods, BaseClient):
     async def sign_in(self, phone_number: str, phone_code_hash: str, phone_code: str) -> Union[
         User, TermsOfService, bool]:
         """Authorize a user in Telegram with a valid confirmation code.
-
         Parameters:
             phone_number (``str``):
                 Phone number in international format (includes the country prefix).
-
             phone_code_hash (``str``):
                 Code identifier taken from the result of :meth:`~Client.send_code`.
-
             phone_code (``str``):
                 The valid confirmation code you received (either as Telegram message or as SMS in your phone number).
-
         Returns:
             :obj:`User` | :obj:`TermsOfService` | bool: On success, in case the authorization completed, the user is
             returned. In case the phone number needs to be registered first AND the terms of services accepted (with
             :meth:`~Client.accept_terms_of_service`), an object containing them is returned. In case the phone number
             needs to be registered, but the terms of services don't need to be accepted, False is returned instead.
-
         Raises:
             BadRequest: In case the arguments are invalid.
             SessionPasswordNeeded: In case a password is needed to sign in.
@@ -487,23 +455,17 @@ class Client(Methods, BaseClient):
 
     async def sign_up(self, phone_number: str, phone_code_hash: str, first_name: str, last_name: str = "") -> User:
         """Register a new user in Telegram.
-
         Parameters:
             phone_number (``str``):
                 Phone number in international format (includes the country prefix).
-
             phone_code_hash (``str``):
                 Code identifier taken from the result of :meth:`~Client.send_code`.
-
             first_name (``str``):
                 New user first name.
-
             last_name (``str``, *optional*):
-                New user last name. Defaults to "" (empty string).
-
+                New user last name. Defaults to "" (empty string, no last name).
         Returns:
             :obj:`User`: On success, the new registered user is returned.
-
         Raises:
             BadRequest: In case the arguments are invalid.
         """
@@ -525,14 +487,11 @@ class Client(Methods, BaseClient):
 
     async def sign_in_bot(self, bot_token: str) -> User:
         """Authorize a bot using its bot token generated by BotFather.
-
         Parameters:
             bot_token (``str``):
                 The bot token generated by BotFather
-
         Returns:
             :obj:`User`: On success, the bot identity is return in form of a user object.
-
         Raises:
             BadRequest: In case the bot token is invalid.
         """
@@ -562,7 +521,6 @@ class Client(Methods, BaseClient):
 
     async def get_password_hint(self) -> str:
         """Get your Two-Step Verification password hint.
-
         Returns:
             ``str``: On success, the password hint as string is returned.
         """
@@ -570,14 +528,11 @@ class Client(Methods, BaseClient):
 
     async def check_password(self, password: str) -> User:
         """Check your Two-Step Verification password and log in.
-
         Parameters:
             password (``str``):
                 Your Two-Step Verification password.
-
         Returns:
             :obj:`User`: On success, the authorized user is returned.
-
         Raises:
             BadRequest: In case the password is invalid.
         """
@@ -597,10 +552,8 @@ class Client(Methods, BaseClient):
 
     async def send_recovery_code(self) -> str:
         """Send a code to your email to recover your password.
-
         Returns:
             ``str``: On success, the hidden email pattern is returned and a recovery code is sent to that email.
-
         Raises:
             BadRequest: In case no recovery email was set up.
         """
@@ -610,14 +563,11 @@ class Client(Methods, BaseClient):
 
     async def recover_password(self, recovery_code: str) -> User:
         """Recover your password with a recovery code and log in.
-
         Parameters:
             recovery_code (``str``):
                 The recovery code sent via email.
-
         Returns:
             :obj:`User`: On success, the authorized user is returned and the Two-Step Verification password reset.
-
         Raises:
             BadRequest: In case the recovery code is invalid.
         """
@@ -634,7 +584,6 @@ class Client(Methods, BaseClient):
 
     async def accept_terms_of_service(self, terms_of_service_id: str) -> bool:
         """Accept the given terms of service.
-
         Parameters:
             terms_of_service_id (``str``):
                 The terms of service identifier.
@@ -783,16 +732,12 @@ class Client(Methods, BaseClient):
 
     async def log_out(self):
         """Log out from Telegram and delete the *\\*.session* file.
-
         When you log out, the current client is stopped and the storage session deleted.
         No more API calls can be made until you start the client and re-authorize again.
-
         Returns:
             ``bool``: On success, True is returned.
-
         Example:
             .. code-block:: python
-
                 # Log out.
                 app.log_out()
         """
@@ -804,27 +749,19 @@ class Client(Methods, BaseClient):
 
     async def start(self):
         """Start the client.
-
         This method connects the client to Telegram and, in case of new sessions, automatically manages the full
         authorization process using an interactive prompt.
-
         Returns:
             :obj:`Client`: The started client itself.
-
         Raises:
             ConnectionError: In case you try to start an already started client.
-
         Example:
             .. code-block:: python
                 :emphasize-lines: 4
-
                 from pyrogram import Client
-
                 app = Client("my_account")
                 app.start()
-
                 ...  # Call API methods
-
                 app.stop()
         """
         is_authorized = await self.connect()
@@ -845,109 +782,101 @@ class Client(Methods, BaseClient):
             await self.initialize()
             return self
 
-    async def stop(self):
+    async def stop(self, block: bool = True):
         """Stop the Client.
-
         This method disconnects the client from Telegram and stops the underlying tasks.
-
+        Parameters:
+            block (``bool``, *optional*):
+                Blocks the code execution until the client has been restarted. It is useful with ``block=False`` in case
+                you want to stop the own client *within* an handler in order not to cause a deadlock.
+                Defaults to True.
         Returns:
             :obj:`Client`: The stopped client itself.
-
         Raises:
             ConnectionError: In case you try to stop an already stopped client.
-
         Example:
             .. code-block:: python
                 :emphasize-lines: 8
-
                 from pyrogram import Client
-
                 app = Client("my_account")
                 app.start()
-
                 ...  # Call API methods
-
                 app.stop()
         """
-        await self.terminate()
-        await self.disconnect()
+        async def do_it():
+            await self.terminate()
+            await self.disconnect()
+
+        if block:
+            await do_it()
+        else:
+            asyncio.ensure_future(do_it())
 
         return self
 
-    async def restart(self):
+    async def restart(self, block: bool = True):
         """Restart the Client.
-
         This method will first call :meth:`~Client.stop` and then :meth:`~Client.start` in a row in order to restart
         a client using a single method.
-
+        Parameters:
+            block (``bool``, *optional*):
+                Blocks the code execution until the client has been restarted. It is useful with ``block=False`` in case
+                you want to restart the own client *within* an handler in order not to cause a deadlock.
+                Defaults to True.
         Returns:
             :obj:`Client`: The restarted client itself.
-
         Raises:
             ConnectionError: In case you try to restart a stopped Client.
-
         Example:
             .. code-block:: python
                 :emphasize-lines: 8
-
                 from pyrogram import Client
-
                 app = Client("my_account")
                 app.start()
-
                 ...  # Call API methods
-
                 app.restart()
-
                 ...  # Call other API methods
-
                 app.stop()
         """
-        await self.stop()
-        await self.start()
+        async def do_it():
+            await self.stop()
+            await self.start()
+
+        if block:
+            await do_it()
+        else:
+            asyncio.ensure_future(do_it())
 
         return self
 
     @staticmethod
     async def idle(stop_signals: tuple = (SIGINT, SIGTERM, SIGABRT)):
         """Block the main script execution until a signal is received.
-
         This static method will run an infinite loop in order to block the main script execution and prevent it from
         exiting while having client(s) that are still running in the background.
-
         It is useful for event-driven application only, that are, applications which react upon incoming Telegram
         updates through handlers, rather than executing a set of methods sequentially.
-
         The way Pyrogram works, it will keep your handlers in a pool of worker threads, which are executed concurrently
         outside the main thread; calling idle() will ensure the client(s) will be kept alive by not letting the main
         script to end, until you decide to quit.
-
         Once a signal is received (e.g.: from CTRL+C) the inner infinite loop will break and your main script will
         continue. Don't forget to call :meth:`~Client.stop` for each running client before the script ends.
-
         Parameters:
             stop_signals (``tuple``, *optional*):
                 Iterable containing signals the signal handler will listen to.
                 Defaults to *(SIGINT, SIGTERM, SIGABRT)*.
-
         Example:
             .. code-block:: python
                 :emphasize-lines: 13
-
                 from pyrogram import Client
-
                 app1 = Client("account1")
                 app2 = Client("account2")
                 app3 = Client("account3")
-
                 ...  # Set handlers up
-
                 app1.start()
                 app2.start()
                 app3.start()
-
                 Client.idle()
-
                 app1.stop()
                 app2.stop()
                 app3.stop()
@@ -967,24 +896,17 @@ class Client(Methods, BaseClient):
 
     def run(self, coroutine=None):
         """Start the client, idle the main script and finally stop the client.
-
         This is a convenience method that calls :meth:`~Client.start`, :meth:`~Client.idle` and :meth:`~Client.stop` in
         sequence. It makes running a client less verbose, but is not suitable in case you want to run more than one
         client in a single main script, since idle() will block after starting the own client.
-
         Raises:
             ConnectionError: In case you try to run an already started client.
-
         Example:
             .. code-block:: python
                 :emphasize-lines: 7
-
                 from pyrogram import Client
-
                 app = Client("my_account")
-
                 ...  # Set handlers up
-
                 app.run()
         """
         loop = asyncio.get_event_loop()
@@ -1001,35 +923,25 @@ class Client(Methods, BaseClient):
 
     def add_handler(self, handler: Handler, group: int = 0):
         """Register an update handler.
-
         You can register multiple handlers, but at most one handler within a group will be used for a single update.
         To handle the same update more than once, register your handler using a different group id (lower group id
         == higher priority). This mechanism is explained in greater details at
         :doc:`More on Updates <../../topics/more-on-updates>`.
-
         Parameters:
             handler (``Handler``):
                 The handler to be registered.
-
             group (``int``, *optional*):
                 The group identifier, defaults to 0.
-
         Returns:
             ``tuple``: A tuple consisting of *(handler, group)*.
-
         Example:
             .. code-block:: python
                 :emphasize-lines: 8
-
                 from pyrogram import Client, MessageHandler
-
                 def dump(client, message):
                     print(message)
-
                 app = Client("my_account")
-
                 app.add_handler(MessageHandler(dump))
-
                 app.run()
         """
         if isinstance(handler, DisconnectHandler):
@@ -1041,33 +953,23 @@ class Client(Methods, BaseClient):
 
     def remove_handler(self, handler: Handler, group: int = 0):
         """Remove a previously-registered update handler.
-
         Make sure to provide the right group where the handler was added in. You can use the return value of the
         :meth:`~Client.add_handler` method, a tuple of *(handler, group)*, and pass it directly.
-
         Parameters:
             handler (``Handler``):
                 The handler to be removed.
-
             group (``int``, *optional*):
                 The group identifier, defaults to 0.
-
         Example:
             .. code-block:: python
                 :emphasize-lines: 11
-
                 from pyrogram import Client, MessageHandler
-
                 def dump(client, message):
                     print(message)
-
                 app = Client("my_account")
-
                 handler = app.add_handler(MessageHandler(dump))
-
                 # Starred expression to unpack (handler, group)
                 app.remove_handler(*handler)
-
                 app.run()
         """
         if isinstance(handler, DisconnectHandler):
@@ -1077,47 +979,35 @@ class Client(Methods, BaseClient):
 
     def stop_transmission(self):
         """Stop downloading or uploading a file.
-
         This method must be called inside a progress callback function in order to stop the transmission at the
         desired time. The progress callback is called every time a file chunk is uploaded/downloaded.
-
         Example:
             .. code-block:: python
                 :emphasize-lines: 9
-
                 from pyrogram import Client
-
                 app = Client("my_account")
-
                 # Example to stop transmission once the upload progress reaches 50%
                 # Useless in practice, but shows how to stop on command
-                def progress(client, current, total):
+                def progress(current, total, client):
                     if (current * 100 / total) > 50:
                         client.stop_transmission()
-
                 with app:
-                    app.send_document("me", "files.zip", progress=progress)
+                    app.send_document("me", "files.zip", progress=progress, progress_args=(app,))
         """
         raise Client.StopTransmission
 
     def export_session_string(self):
         """Export the current authorized session as a serialized string.
-
         Session strings are useful for storing in-memory authorized sessions in a portable, serialized string.
         More detailed information about session strings can be found at the dedicated page of
         :doc:`Storage Engines <../../topics/storage-engines>`.
-
         Returns:
             ``str``: The session serialized into a printable, url-safe string.
-
         Example:
             .. code-block:: python
                 :emphasize-lines: 6
-
                 from pyrogram import Client
-
                 app = Client("my_account")
-
                 with app:
                     print(app.export_session_string())
         """
@@ -1125,44 +1015,33 @@ class Client(Methods, BaseClient):
 
     def set_parse_mode(self, parse_mode: Union[str, None] = "combined"):
         """Set the parse mode to be used globally by the client.
-
         When setting the parse mode with this method, all other methods having a *parse_mode* parameter will follow the
         global value by default. The default value *"combined"* enables both Markdown and HTML styles to be used and
         combined together.
-
         Parameters:
             parse_mode (``str``):
                 The new parse mode, can be any of: *"combined"*, for the default combined mode. *"markdown"* or *"md"*
                 to force Markdown-only styles. *"html"* to force HTML-only styles. *None* to disable the parser
                 completely.
-
         Raises:
             ValueError: In case the provided *parse_mode* is not a valid parse mode.
-
         Example:
             .. code-block:: python
                 :emphasize-lines: 10,14,18,22
-
                 from pyrogram import Client
-
                 app = Client("my_account")
-
                 with app:
                     # Default combined mode: Markdown + HTML
                     app.send_message("haskell", "1. **markdown** and <i>html</i>")
-
                     # Force Markdown-only, HTML is disabled
                     app.set_parse_mode("markdown")
                     app.send_message("haskell", "2. **markdown** and <i>html</i>")
-
                     # Force HTML-only, Markdown is disabled
                     app.set_parse_mode("html")
                     app.send_message("haskell", "3. **markdown** and <i>html</i>")
-
                     # Disable the parser completely
                     app.set_parse_mode(None)
                     app.send_message("haskell", "4. **markdown** and <i>html</i>")
-
                     # Bring back the default combined mode
                     app.set_parse_mode()
                     app.send_message("haskell", "5. **markdown** and <i>html</i>")
@@ -1347,30 +1226,22 @@ class Client(Methods, BaseClient):
 
     async def send(self, data: TLObject, retries: int = Session.MAX_RETRIES, timeout: float = Session.WAIT_TIMEOUT):
         """Send raw Telegram queries.
-
         This method makes it possible to manually call every single Telegram API method in a low-level manner.
         Available functions are listed in the :obj:`functions <pyrogram.api.functions>` package and may accept compound
         data types from :obj:`types <pyrogram.api.types>` as well as bare types such as ``int``, ``str``, etc...
-
         .. note::
-
             This is a utility method intended to be used **only** when working with raw
             :obj:`functions <pyrogram.api.functions>` (i.e: a Telegram API method you wish to use which is not
             available yet in the Client class as an easy-to-use method).
-
         Parameters:
             data (``RawFunction``):
                 The API Schema function filled with proper arguments.
-
             retries (``int``):
                 Number of retries.
-
             timeout (``float``):
                 Timeout in seconds.
-
         Returns:
             ``RawType``: The raw type response generated by the query.
-
         Raises:
             RPCError: In case of a Telegram RPC error.
         """
@@ -1383,7 +1254,7 @@ class Client(Methods, BaseClient):
         if self.takeout_id:
             data = functions.InvokeWithTakeout(takeout_id=self.takeout_id, query=data)
 
-        r = await self.session.send(data, retries, timeout)
+        r = await self.session.send(data, retries, timeout, self.sleep_threshold)
 
         self.fetch_peers(getattr(r, "users", []))
         self.fetch_peers(getattr(r, "chats", []))
@@ -1503,7 +1374,7 @@ class Client(Methods, BaseClient):
             count = 0
 
             if not include:
-                for path in sorted(Path(root).rglob("*.py")):
+                for path in sorted(Path(root.replace(".", "/")).rglob("*.py")):
                     module_path = '.'.join(path.parent.parts + (path.stem,))
                     module = import_module(module_path)
 
@@ -1639,21 +1510,16 @@ class Client(Methods, BaseClient):
     async def resolve_peer(self, peer_id: Union[int, str]):
         """Get the InputPeer of a known peer id.
         Useful whenever an InputPeer type is required.
-
         .. note::
-
             This is a utility method intended to be used **only** when working with raw
             :obj:`functions <pyrogram.api.functions>` (i.e: a Telegram API method you wish to use which is not
             available yet in the Client class as an easy-to-use method).
-
         Parameters:
             peer_id (``int`` | ``str``):
                 The peer id you want to extract the InputPeer from.
                 Can be a direct id (int), a username (str) or a phone number (str).
-
         Returns:
             ``InputPeer``: On success, the resolved peer id is returned in form of an InputPeer object.
-
         Raises:
             KeyError: In case the peer doesn't exist in the internal database.
         """
@@ -1735,48 +1601,36 @@ class Client(Methods, BaseClient):
                         ):
         """Upload a file onto Telegram servers, without actually sending the message to anyone.
         Useful whenever an InputFile type is required.
-
         .. note::
-
             This is a utility method intended to be used **only** when working with raw
             :obj:`functions <pyrogram.api.functions>` (i.e: a Telegram API method you wish to use which is not
             available yet in the Client class as an easy-to-use method).
-
         Parameters:
             path (``str``):
                 The path of the file you want to upload that exists on your local machine.
-
             file_id (``int``, *optional*):
                 In case a file part expired, pass the file_id and the file_part to retry uploading that specific chunk.
-
             file_part (``int``, *optional*):
                 In case a file part expired, pass the file_id and the file_part to retry uploading that specific chunk.
-
             progress (``callable``, *optional*):
                 Pass a callback function to view the file transmission progress.
                 The function must take *(current, total)* as positional arguments (look at Other Parameters below for a
                 detailed description) and will be called back each time a new file chunk has been successfully
                 transmitted.
-
             progress_args (``tuple``, *optional*):
                 Extra custom arguments for the progress callback function.
                 You can pass anything you need to be available in the progress callback scope; for example, a Message
                 object or a Client instance in order to edit the message with the updated progress status.
-
         Other Parameters:
             current (``int``):
                 The amount of bytes transmitted so far.
-
             total (``int``):
                 The total size of the file.
-
             *args (``tuple``, *optional*):
                 Extra custom arguments as defined in the *progress_args* parameter.
                 You can either keep *\*args* or add every single extra argument in your function signature.
-
         Returns:
             ``InputFile``: On success, the uploaded file is returned in form of an InputFile object.
-
         Raises:
             RPCError: In case of a Telegram RPC error.
         """
