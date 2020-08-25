@@ -20,6 +20,7 @@ import re
 from typing import Callable
 
 from .filter import Filter
+from ..types import Message, CallbackQuery, InlineQuery
 from ..types.bots_and_keyboards import InlineKeyboardMarkup, ReplyKeyboardMarkup
 
 CUSTOM_FILTER_NAME = "CustomFilter"
@@ -58,7 +59,7 @@ class Filters:
     """This class provides access to all library-defined Filters available in Pyrogram.
 
     The Filters listed here are currently intended to be used with the :obj:`MessageHandler` only.
-    At the moment, if you want to filter updates coming from different `Handlers <Handlers.html>`_ you have to create
+    At the moment, if you want to filter updates coming from different `Handlers <handlers.html>`_ you have to create
     your own filters with :meth:`~Filters.create` and use them in the same way.
     """
 
@@ -214,6 +215,10 @@ class Filters:
     from_scheduled = create(lambda _, m: bool(m.from_scheduled), "FromScheduledFilter")
     """Filter new automatically sent messages that were previously scheduled."""
 
+    # Messages from linked channels are forwarded automatically by Telegram and have no sender (from_user is None).
+    linked_channel = create(lambda _, m: bool(m.forward_from_chat and not m.from_user), "LinkedChannelFilter")
+    """Filter messages that are automatically forwarded from the linked channel to the group chat."""
+
     @staticmethod
     def command(
         commands: str or list,
@@ -272,11 +277,11 @@ class Filters:
 
             return False
 
-        commands = commands if type(commands) is list else [commands]
+        commands = commands if isinstance(commands, list) else [commands]
         commands = {c if case_sensitive else c.lower() for c in commands}
 
         prefixes = [] if prefixes is None else prefixes
-        prefixes = prefixes if type(prefixes) is list else [prefixes]
+        prefixes = prefixes if isinstance(prefixes, list) else [prefixes]
         prefixes = set(prefixes) if prefixes else {""}
 
         return create(
@@ -288,26 +293,40 @@ class Filters:
         )
 
     @staticmethod
-    def regex(pattern, flags: int = 0):
-        """Filter message texts or captions that match a given regular expression pattern.
+    def regex(pattern: str, flags: int = 0):
+        """Filter updates that match a given regular expression pattern.
+
+        Can be applied to handlers that receive one of the following updates:
+
+        - :obj:`Message`: The filter will match ``text`` or ``caption``.
+        - :obj:`CallbackQuery`: The filter will match ``data``.
+        - :obj:`InlineQuery`: The filter will match ``query``.
+
+        When a pattern matches, all the `Match Objects <https://docs.python.org/3/library/re.html#match-objects>`_ are
+        stored in the ``matches`` field of the update object itself.
 
         Parameters:
             pattern (``str``):
-                The RegEx pattern as string, it will be applied to the text or the caption of a message. When a pattern
-                matches, all the `Match Objects <https://docs.python.org/3/library/re.html#match-objects>`_ are stored
-                in the *matches* field of the :obj:`Message` itself.
+                The regex pattern as string.
 
             flags (``int``, *optional*):
-                RegEx flags.
+                Regex flags.
         """
 
-        def func(flt, message):
-            text = message.text or message.caption
+        def func(flt, update):
+            if isinstance(update, Message):
+                value = update.text or update.caption
+            elif isinstance(update, CallbackQuery):
+                value = update.data
+            elif isinstance(update, InlineQuery):
+                value = update.query
+            else:
+                raise ValueError("Regex filter doesn't work with {}".format(type(update)))
 
-            if text:
-                message.matches = list(flt.p.finditer(text)) or None
+            if value:
+                update.matches = list(flt.p.finditer(value)) or None
 
-            return bool(message.matches)
+            return bool(update.matches)
 
         return create(func, "RegexFilter", p=re.compile(pattern, flags))
 
@@ -326,11 +345,11 @@ class Filters:
         """
 
         def __init__(self, users: int or str or list = None):
-            users = [] if users is None else users if type(users) is list else [users]
+            users = [] if users is None else users if isinstance(users, list) else [users]
 
             super().__init__(
                 "me" if u in ["me", "self"]
-                else u.lower().strip("@") if type(u) is str
+                else u.lower().strip("@") if isinstance(u, str)
                 else u for u in users
             )
 
@@ -357,11 +376,11 @@ class Filters:
         """
 
         def __init__(self, chats: int or str or list = None):
-            chats = [] if chats is None else chats if type(chats) is list else [chats]
+            chats = [] if chats is None else chats if isinstance(chats, list) else [chats]
 
             super().__init__(
                 "me" if c in ["me", "self"]
-                else c.lower().strip("@") if type(c) is str
+                else c.lower().strip("@") if isinstance(c, str)
                 else c for c in chats
             )
 
@@ -374,7 +393,7 @@ class Filters:
                              and message.from_user
                              and message.from_user.is_self
                              and not message.outgoing)))
-
+            
     @staticmethod
     def callback_data(data: str or bytes):
         """Filter callback queries for their data.
