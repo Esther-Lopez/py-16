@@ -229,7 +229,7 @@ class Client(Methods, Scaffold):
         self.sleep_threshold = sleep_threshold
         self.hide_password = hide_password
 
-        self.executor = ThreadPoolExecutor(self.workers, thread_name_prefix="Handler")
+        self.executor = ThreadPoolExecutor(1, thread_name_prefix="Handler")
 
         if isinstance(session_name, str):
             if session_name == ":memory:" or len(session_name) >= MemoryStorage.SESSION_STRING_SIZE:
